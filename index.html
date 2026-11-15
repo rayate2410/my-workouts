@@ -9,6 +9,7 @@
 <link rel="icon" href="brand-icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>MyWorkouts</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 /* Layout: one narrow column built for a phone. Week strip, then seven day rows;
    gym days open into tick lists with a kg box per lift. */
@@ -100,6 +101,11 @@ body{padding-top:max(16px,env(safe-area-inset-top,0px));padding-bottom:max(40px,
 .btn.warn{background:var(--orange);border-color:var(--orange);color:var(--on-acc)}
 .note{margin:10px 0 0;font-size:12.5px;color:var(--mute)}
 .note.ok{color:var(--teal);font-weight:600}
+.drive-backup{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+.drive-backup h3{font-family:var(--f-head);font-size:14px;margin:0 0 8px}
+.drive-backup .btns{margin-top:0}
+.drive-backup .btn{flex:1 1 135px}
+.drive-backup .note{overflow-wrap:anywhere}
 input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 .icon-btn{width:40px;height:40px;flex:0 0 40px;display:inline-grid;place-items:center;border:1.5px solid var(--line);border-radius:12px;background:var(--surface);color:var(--mute)}
 .icon-btn svg{width:19px;height:19px}
@@ -172,6 +178,9 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 <script>
 (function(){
 "use strict";
+const CLIENT_ID = '94614380538-vptj6rt9qna9dpv8okgonl7s3kp6l3o1.apps.googleusercontent.com';
+const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_SYNC_KEY = "my-workouts-drive-last-sync-v1";
 var LEGACY_START=new Date(2026,10,16);
 function monday(d){var x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()-((x.getDay()+6)%7));return x;}
 function isoDate(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
@@ -665,6 +674,10 @@ function gymCard(d,dt,isToday){
 
 /* ---------- backup ---------- */
 var importPending=null, backupMsg="", backupOk=false;
+var driveAccessToken="", driveTokenExpiry=0, driveTokenClient=null;
+var driveStatus="", driveBusy=false, pendingDriveAction=null, driveLastSync="";
+var pendingDriveRestore=false;
+try{driveLastSync=localStorage.getItem(DRIVE_SYNC_KEY)||"";}catch(e){}
 function iso(d){var m=d.getMonth()+1,dd=d.getDate();return d.getFullYear()+"-"+(m<10?"0":"")+m+"-"+(dd<10?"0":"")+dd;}
 function readable(){
   var out=[];
@@ -691,6 +704,17 @@ function exportText(){
   return JSON.stringify({app:"MyWorkouts",version:3,exportedAt:new Date().toISOString(),programStart:state.start,
     log:readable(),bodyChecks:state.body,raw:{t:state.t,s:state.s,body:state.body,p:state.p,templates:state.templates,start:state.start}},null,1);
 }
+function parseBackup(text){
+  var o=JSON.parse(String(text)), raw=(o&&o.raw)?o.raw:o;
+  if(!raw||!raw.s||typeof raw.s!=="object"||Array.isArray(raw.s))throw new Error("That file is not a MyWorkouts backup.");
+  return normalize(raw);
+}
+function applyImport(){
+  if(!importPending)return;
+  state=importPending;importPending=null;state.t=Date.now();save();
+  if(pendingDriveRestore){pendingDriveRestore=false;if(saveDriveSyncTime())driveStatus="Google Drive backup restored.";}
+  backupMsg="Data restored.";backupOk=true;render();
+}
 function fileName(){return "MyWorkouts-"+iso(new Date())+".json";}
 function doDownload(){
   var blob=new Blob([exportText()],{type:"application/json"});
@@ -711,31 +735,151 @@ function doShare(){
 }
 function onPick(ev){
   var f=ev.target.files&&ev.target.files[0]; if(!f)return;
+  pendingDriveRestore=false;
   var r=new FileReader();
   r.onload=function(){
     try{
-      var o=JSON.parse(String(r.result)); var raw=(o&&o.raw)?o.raw:o;
-      if(!raw||typeof raw.s!=="object")throw new Error("bad");
-      importPending=normalize(raw); backupMsg=""; 
-    }catch(e){importPending=null;backupMsg="That file is not a MyWorkouts backup.";backupOk=false;}
+      importPending=parseBackup(r.result); backupMsg="";
+    }catch(e){importPending=null;backupMsg=e.message||"That file is not a MyWorkouts backup.";backupOk=false;}
     render();
   };
   r.readAsText(f); ev.target.value="";
 }
+function driveConnected(){return !!driveAccessToken&&Date.now()<driveTokenExpiry;}
+function driveTokenCallback(response){
+  driveBusy=false;
+  if(!response||response.error||!response.access_token){
+    pendingDriveAction=null;
+    driveStatus=response&&response.error_description?response.error_description:"Google Drive authorization was not completed.";
+    render();return;
+  }
+  driveAccessToken=response.access_token;
+  driveTokenExpiry=Date.now()+Math.max(0,(Number(response.expires_in)||3600)-60)*1000;
+  var pending=pendingDriveAction;pendingDriveAction=null;
+  driveStatus="Google Drive connected.";
+  render();
+  if(pending&&pending.action)runDriveAction(pending.action,pending.retried);
+}
+function requestDriveToken(action,prompt,retried){
+  if(CLIENT_ID==="YOUR_GOOGLE_CLIENT_ID"){
+    driveStatus="Set CLIENT_ID in index.html to your Google OAuth web client ID.";
+    driveBusy=false;render();return;
+  }
+  if(!window.google||!google.accounts||!google.accounts.oauth2){
+    driveStatus="Google Identity Services is still loading. Try again shortly.";
+    driveBusy=false;render();return;
+  }
+  pendingDriveAction={action:action,retried:!!retried};
+  try{
+    if(!driveTokenClient)driveTokenClient=google.accounts.oauth2.initTokenClient({
+      client_id:CLIENT_ID,scope:DRIVE_SCOPE,callback:driveTokenCallback
+    });
+    driveTokenClient.requestAccessToken({prompt:prompt||""});
+  }catch(e){
+    pendingDriveAction=null;driveBusy=false;
+    driveStatus="Could not start Google authorization: "+e.message;render();
+  }
+}
+function disconnectDrive(){
+  var token=driveAccessToken;
+  driveAccessToken="";driveTokenExpiry=0;pendingDriveAction=null;driveBusy=false;
+  if(token&&window.google&&google.accounts&&google.accounts.oauth2)google.accounts.oauth2.revoke(token,function(){});
+  driveStatus="Google Drive disconnected.";render();
+}
+async function driveFetch(url,options,action,retried){
+  options=options||{};options.headers=options.headers||{};
+  options.headers.Authorization="Bearer "+driveAccessToken;
+  var response=await fetch(url,options);
+  if(response.status===401&&!retried){
+    driveAccessToken="";driveTokenExpiry=0;driveBusy=true;
+    requestDriveToken(action,"",true);return null;
+  }
+  if(!response.ok){
+    var text=await response.text(), detail=text;
+    try{var data=JSON.parse(text);detail=data.error&&data.error.message||text;}catch(e){}
+    throw new Error("Google Drive error ("+response.status+"): "+(detail||response.statusText));
+  }
+  return response;
+}
+function saveDriveSyncTime(){
+  driveLastSync=new Date().toISOString();
+  try{localStorage.setItem(DRIVE_SYNC_KEY,driveLastSync);return true;}
+  catch(e){driveStatus="Drive operation succeeded, but the sync time could not be saved on this device.";return false;}
+}
+async function runDriveAction(action,retried){
+  if(!driveConnected()){
+    driveBusy=true;driveStatus="Waiting for Google authorization…";
+    requestDriveToken(action,"",retried);render();return;
+  }
+  driveBusy=true;driveStatus=action==="backup"?"Backing up to Google Drive…":"Restoring from Google Drive…";render();
+  try{
+    var query=encodeURIComponent("name = 'workout_logs.json' and trashed = false");
+    var list=await driveFetch("https://www.googleapis.com/drive/v3/files?q="+query+"&spaces=drive&pageSize=100&orderBy=modifiedTime desc&fields=files(id,name,modifiedTime)",null,action,retried);
+    if(!list)return;
+    var files=(await list.json()).files||[];
+    if(action==="backup"){
+      var boundary="myworkouts_"+Date.now().toString(36);
+      var metadata=JSON.stringify({name:"workout_logs.json",mimeType:"application/json"});
+      var multipart=new Blob([
+        "--"+boundary+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+metadata+"\r\n",
+        "--"+boundary+"\r\nContent-Type: application/json\r\n\r\n"+exportText()+"\r\n",
+        "--"+boundary+"--"
+      ],{type:"multipart/related; boundary="+boundary});
+      var existing=files[0]||null;
+      var url="https://www.googleapis.com/upload/drive/v3/files"+(existing?"/"+encodeURIComponent(existing.id):"")+"?uploadType=multipart&fields=id,name,modifiedTime";
+      var uploaded=await driveFetch(url,{method:existing?"PATCH":"POST",headers:{"Content-Type":"multipart/related; boundary="+boundary},body:multipart},action,retried);
+      if(!uploaded)return;
+      await uploaded.json();
+      if(saveDriveSyncTime())driveStatus="Backup saved to Google Drive.";
+    }else if(action==="restore"){
+      if(!files.length){driveStatus="No workout_logs.json backup was found in Google Drive.";return;}
+      var file=await driveFetch("https://www.googleapis.com/drive/v3/files/"+encodeURIComponent(files[0].id)+"?alt=media",null,action,retried);
+      if(!file)return;
+      importPending=parseBackup(await file.text());
+      pendingDriveRestore=true;backupMsg="Replace everything on this phone with the Google Drive backup?";backupOk=false;
+      driveStatus="Drive backup loaded. Confirm below to restore.";
+    }
+  }catch(e){driveStatus=e.message||"Google Drive operation failed.";}
+  finally{
+    if(!pendingDriveAction){driveBusy=false;render();}
+  }
+}
+function driveAction(action){
+  if(driveBusy)return;
+  runDriveAction(action,false);
+}
+function driveStatusText(){
+  var last=driveLastSync?" Last synced "+new Date(driveLastSync).toLocaleString()+".":" No Drive backup yet.";
+  return (driveStatus?driveStatus+" ":"")+(driveConnected()?"Connected.":"Not connected.")+last;
+}
+
 function backupCard(){
   var pick=h("input",{type:"file",accept:".json,application/json",id:"imp","aria-label":"Choose backup file",onchange:onPick});
+  var connected=!!driveAccessToken;
+  var drive=h("section",{class:"drive-backup"},
+    h("h3",null,"Google Drive"),
+    h("div",{class:"btns"},
+      h("button",{class:"btn"+(connected?"":" main"),onclick:function(){
+        if(connected){disconnectDrive();return;}
+        if(driveBusy)return;
+        driveBusy=true;driveStatus="Connecting to Google Drive…";render();
+        requestDriveToken(null,"consent",false);
+      }},connected?"Disconnect Google Drive":"Connect Google Drive"),
+      h("button",{class:"btn",disabled:!connected||driveBusy,onclick:function(){driveAction("backup");}},"Backup to Drive"),
+      h("button",{class:"btn",disabled:!connected||driveBusy,onclick:function(){driveAction("restore");}},"Restore from Drive")),
+    h("p",{class:"note","aria-live":"polite"},driveStatusText()));
   var c=h("section",{class:"card body"},
     h("h2",null,"Backup"),
     h("div",{class:"btns"},
       h("button",{class:"btn main",onclick:doDownload},"Export data"),
       h("button",{class:"btn",onclick:doShare},"Share"),
       h("button",{class:"btn",onclick:function(){pick.click();}},"Import")),
-    pick);
+    pick,drive);
   if(importPending){
     c.appendChild(h("p",{class:"note"},"Replace everything on this phone with the file you picked?"));
     c.appendChild(h("div",{class:"btns"},
-      h("button",{class:"btn warn",onclick:function(){state=importPending;importPending=null;state.t=Date.now();try{localStorage.setItem(LS,JSON.stringify(state));}catch(e){}backupMsg="Data restored from the file.";backupOk=true;render();}},"Replace"),
-      h("button",{class:"btn",onclick:function(){importPending=null;render();}},"Cancel")));
+      h("button",{class:"btn warn",onclick:applyImport},"Replace"),
+      h("button",{class:"btn",onclick:function(){importPending=null;pendingDriveRestore=false;render();}},"Cancel")));
   }
   if(backupMsg)c.appendChild(h("p",{class:"note"+(backupOk?" ok":"")},backupMsg));
   return c;
