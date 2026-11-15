@@ -379,6 +379,7 @@ function render(){
 
   var day=DAYS[daySel], dt=dateOf(wkSel,daySel);
   var isToday=(tp.wk===wkSel&&tp.i===daySel);
+  app.appendChild(streakCard(tp));
   app.appendChild(h("div",{class:"day-nav"},
     iconButton("back","Previous day",function(){moveDay(-1);}),
     h("div",{class:"day-heading"},
@@ -386,7 +387,6 @@ function render(){
       h("span",null,dt.toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})),
       isToday?h("small",null,"Today"):null),
     iconButton("next","Next day",function(){moveDay(1);})));
-  app.appendChild(streakCard(tp));
   if(!isToday)app.appendChild(h("button",{class:"today-link",onclick:function(){var p=todayPos();wkSel=p.wk;daySel=p.i;render();}},"Go to today"));
   var plan=planFor(wkSel,day);
   app.appendChild(!plan?emptyCard(day,dt,isToday):(plan.exercises.length?gymCard(day,dt,isToday):walkCard(day,dt,isToday)));
