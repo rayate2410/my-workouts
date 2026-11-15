@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#14213D">
 <meta name="color-scheme" content="light dark">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icon-192.png">
+<link rel="icon" href="brand-icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>LogMyWorkouts</title>
 <style>
@@ -118,6 +118,12 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .exercise-meta select{font-size:13px}
 .plan-day{display:flex;align-items:center;gap:10px;padding:12px 14px}
 .plan-day .lab{flex:1;min-width:0}
+.app-head{display:flex;align-items:center;gap:12px;min-height:48px}
+.app-head .icon-btn{width:44px;height:44px;flex-basis:44px}
+.app-head .menu-trigger{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(20,33,61,.08)}
+.brand-lockup{display:flex;align-items:center;gap:9px;min-width:0}
+.brand-mark{display:block;width:38px;height:38px;flex:0 0 38px;border-radius:11px}
+.brand-lockup h1{font-family:var(--f-head);font-size:19px;line-height:1.15;margin:0;font-weight:750;letter-spacing:-.02em}
 .page-head{display:flex;align-items:center;gap:8px}
 .page-head h2{flex:1;font-family:var(--f-head);font-size:18px;margin:0}
 .icon-btn.text-icon{width:auto;flex-basis:auto;padding:0 12px;display:flex;gap:8px;font-size:13px;font-weight:600}
@@ -132,6 +138,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .side-menu{width:min(84vw,320px);height:100%;height:100dvh;padding:max(18px,env(safe-area-inset-top,0px)) 16px max(18px,env(safe-area-inset-bottom,0px));background:var(--surface);box-shadow:8px 0 30px rgba(0,0,0,.2);display:flex;flex-direction:column;gap:8px}
 .menu-head{display:flex;align-items:center;gap:10px;padding:4px 0 14px;border-bottom:1px solid var(--line);margin-bottom:4px}
 .menu-head strong{flex:1;font-family:var(--f-head);font-size:17px}
+.menu-head .brand-lockup{flex:1}
 .menu-link{display:flex;align-items:center;min-height:50px;padding:0 12px;border-radius:12px;text-align:left;font-weight:600}
 .menu-link[aria-current="page"]{background:var(--chip);color:var(--teal)}
 @media (max-width:380px){.ex{grid-template-columns:40px minmax(0,1fr) 88px;gap:4px}.exercise-meta{grid-template-columns:60px minmax(0,1fr) minmax(0,1fr);gap:4px}}
@@ -323,9 +330,9 @@ function render(){
   var tp=todayPos();
   var sy=window.scrollY||0;
   app.textContent="";
-  app.appendChild(h("header",{class:"page-head"},
-    h("h2",null,"LogMyWorkouts"),
-    iconButton(menuOpen?"close":"menu",menuOpen?"Close menu":"Open menu",function(){menuOpen=!menuOpen;render();})));
+  app.appendChild(h("header",{class:"app-head"},
+    iconButton("menu","Open menu",function(){menuOpen=!menuOpen;render();},"menu-trigger"),
+    brandLockup()));
   if(page==="plans"){
     renderPlans();
     if(menuOpen)appendMenu();
@@ -363,7 +370,7 @@ function appendMenu(){
   var backdrop=h("div",{class:"menu-backdrop",onclick:function(){menuOpen=false;render();}},
     h("aside",{class:"side-menu",role:"dialog","aria-modal":"true","aria-label":"App menu",onclick:function(e){e.stopPropagation();}},
       h("div",{class:"menu-head"},
-        h("strong",null,"LogMyWorkouts"),
+        brandLockup(),
         iconButton("close","Close menu",function(){menuOpen=false;render();})),
       h("nav",{"aria-label":"Main menu"},
         menuItem("log","Today's log"),
@@ -388,6 +395,12 @@ function moveDay(delta){
 function iconButton(icon,label,fn,extra,visibleText){
   return h("button",{class:"icon-btn"+(extra?" "+extra:""),type:"button","aria-label":label,title:label,onclick:fn},
     h("span",{html:ICONS[icon]}),visibleText?h("span",null,visibleText):null);
+}
+
+function brandLockup(){
+  return h("div",{class:"brand-lockup"},
+    h("img",{class:"brand-mark",src:"brand-icon.svg",alt:""}),
+    h("h1",null,"LogMyWorkouts"));
 }
 
 function renderPlans(){
