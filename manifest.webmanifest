@@ -1,6 +1,6 @@
 {
-  "name": "LogMyWorkouts",
-  "short_name": "LogMyWorkouts",
+  "name": "MyWorkouts",
+  "short_name": "MyWorkouts",
   "description": "Offline workout plan creator and workout log.",
   "start_url": "./",
   "scope": "./",

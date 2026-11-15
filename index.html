@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="brand-icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>LogMyWorkouts</title>
+<title>MyWorkouts</title>
 <style>
 /* Layout: one narrow column built for a phone. Week strip, then seven day rows;
    gym days open into tick lists with a kg box per lift. */
@@ -134,6 +134,28 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .day-heading span{font-size:13px;color:var(--mute)}
 .day-heading small{font-size:11px;color:var(--teal);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 .today-link{align-self:center;justify-self:center;color:var(--teal);font-size:13px;font-weight:600;padding:5px 10px}
+.streak-card{width:100%;padding:14px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.streak-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.streak-top strong{font-family:var(--f-head);font-size:15px}
+.streak-count{color:var(--teal);font-size:13px;font-weight:700}
+.streak-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;margin-top:12px}
+.streak-day{display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--mute);font-size:10px}
+.streak-dot{width:30px;height:30px;display:grid;place-items:center;border:1.5px solid var(--line2);border-radius:50%;font-size:12px;font-weight:600;color:var(--ink)}
+.streak-day.done .streak-dot{background:var(--teal);border-color:var(--teal);color:var(--on-acc)}
+.streak-day.today .streak-dot{box-shadow:0 0 0 2px var(--ink)}
+.calendar-panel{padding:14px}
+.calendar-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.calendar-head h2{font-family:var(--f-head);font-size:17px;margin:0}
+.calendar-head input{min-height:42px;max-width:175px;padding:7px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
+.calendar{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
+.calendar-label{padding:5px 0;text-align:center;color:var(--mute);font-size:11px;font-weight:600}
+.calendar-date{min-width:0;aspect-ratio:1;border:1.5px solid transparent;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:13px}
+.calendar-date.done{background:var(--teal);color:var(--on-acc)}
+.calendar-date.today{border-color:var(--ink)}
+.calendar-date.other{visibility:hidden}
+.calendar-date small{font-size:9px;line-height:1}
+.calendar-legend{display:flex;align-items:center;gap:7px;margin:12px 0 0;color:var(--mute);font-size:12px}
+.legend-dot{width:12px;height:12px;border-radius:50%;background:var(--teal)}
 .menu-backdrop{position:fixed;inset:0;z-index:20;background:rgba(7,12,24,.52);display:flex}
 .side-menu{width:min(84vw,320px);height:100%;height:100dvh;padding:max(18px,env(safe-area-inset-top,0px)) 16px max(18px,env(safe-area-inset-bottom,0px));background:var(--surface);box-shadow:8px 0 30px rgba(0,0,0,.2);display:flex;flex-direction:column;gap:8px}
 .menu-head{display:flex;align-items:center;gap:10px;padding:4px 0 14px;border-bottom:1px solid var(--line);margin-bottom:4px}
@@ -198,6 +220,7 @@ var open={};
 var wkSel=1;
 var daySel=0;
 var page="log", editorTarget=null;
+var streakMonth=isoDate(today()).slice(0,7);
 
 function normalize(d){
   var o={t:0,s:{},body:{},p:{},templates:{},start:isoDate(monday(new Date()))};
@@ -348,6 +371,11 @@ function render(){
     if(menuOpen)appendMenu();
     window.scrollTo(0,0);return;
   }
+  if(page==="streaks"){
+    renderStreaks();
+    if(menuOpen)appendMenu();
+    window.scrollTo(0,0);return;
+  }
 
   var day=DAYS[daySel], dt=dateOf(wkSel,daySel);
   var isToday=(tp.wk===wkSel&&tp.i===daySel);
@@ -358,6 +386,7 @@ function render(){
       h("span",null,dt.toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})),
       isToday?h("small",null,"Today"):null),
     iconButton("next","Next day",function(){moveDay(1);})));
+  app.appendChild(streakCard(tp));
   if(!isToday)app.appendChild(h("button",{class:"today-link",onclick:function(){var p=todayPos();wkSel=p.wk;daySel=p.i;render();}},"Go to today"));
   var plan=planFor(wkSel,day);
   app.appendChild(!plan?emptyCard(day,dt,isToday):(plan.exercises.length?gymCard(day,dt,isToday):walkCard(day,dt,isToday)));
@@ -385,6 +414,69 @@ function menuItem(target,label){
   }},label);
 }
 
+function datePosition(date){
+  var diff=Math.round((date-startDate())/86400000), wk=Math.floor(diff/7)+1;
+  return {wk:wk,i:diff-7*(wk-1)};
+}
+
+function isDayDone(date){
+  var pos=datePosition(date), d=DAYS[pos.i], plan=planFor(pos.wk,d), s=peek(pos.wk,d.k);
+  if(!plan||!s||s.st==="skip")return false;
+  if(!plan.exercises.length)return s.st==="done";
+  return plan.exercises.every(function(x){return !!(s.ex&&s.ex[x.id]&&s.ex[x.id].d);});
+}
+
+function streakLength(){
+  var cursor=today(), count=0;
+  if(!isDayDone(cursor))cursor.setDate(cursor.getDate()-1);
+  for(var i=0;i<3660&&isDayDone(cursor);i++,count++)cursor.setDate(cursor.getDate()-1);
+  return count;
+}
+
+function streakCard(tp){
+  var week=h("div",{class:"streak-week"});
+  for(var i=0;i<7;i++){
+    var date=dateOf(tp.wk,i), done=isDayDone(date), todayDate=isoDate(date)===isoDate(today());
+    week.appendChild(h("span",{class:"streak-day"+(done?" done":"")+(todayDate?" today":"")},
+      h("span",null,date.toLocaleDateString("en-IN",{weekday:"short"}).slice(0,1)),
+      h("span",{class:"streak-dot"},done?"✓":String(date.getDate()))));
+  }
+  return h("button",{class:"streak-card",type:"button","aria-label":"View streak calendar",
+    onclick:function(){streakMonth=isoDate(today()).slice(0,7);page="streaks";render();}},
+    h("span",{class:"streak-top"},h("strong",null,"Streaks · this week"),h("span",{class:"streak-count"},streakLength()+" day streak")),
+    week);
+}
+
+function renderStreaks(){
+  var monthInput=h("input",{type:"month","aria-label":"Select streak month",value:streakMonth,
+    onchange:function(){
+      if(!/^\d{4}-\d{2}$/.test(monthInput.value)){monthInput.value=streakMonth;return;}
+      streakMonth=monthInput.value;render();
+    }});
+  var parts=streakMonth.split("-"), year=+parts[0], month=+parts[1]-1;
+  var first=new Date(year,month,1), daysInMonth=new Date(year,month+1,0).getDate();
+  var offset=(first.getDay()+6)%7, cells=[];
+  for(var i=0;i<offset;i++)cells.push(h("span",{class:"calendar-date other","aria-hidden":"true"}));
+  for(var day=1;day<=daysInMonth;day++){
+    var date=new Date(year,month,day), done=isDayDone(date), todayDate=isoDate(date)===isoDate(today());
+    cells.push(h("button",{class:"calendar-date"+(done?" done":"")+(todayDate?" today":""),"aria-label":date.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"})+(done?", completed":""),
+      onclick:function(date){return function(){var pos=datePosition(date);wkSel=pos.wk;daySel=pos.i;page="log";render();};}(date)},
+      String(day),done?h("small",null,"✓"):null));
+  }
+  var grid=h("div",{class:"calendar"},
+    h("span",{class:"calendar-label"},"Mon"),h("span",{class:"calendar-label"},"Tue"),
+    h("span",{class:"calendar-label"},"Wed"),h("span",{class:"calendar-label"},"Thu"),
+    h("span",{class:"calendar-label"},"Fri"),h("span",{class:"calendar-label"},"Sat"),
+    h("span",{class:"calendar-label"},"Sun"));
+  cells.forEach(function(cell){grid.appendChild(cell);});
+  app.appendChild(h("section",{class:"card calendar-panel"},
+    h("div",{class:"calendar-head"},
+      h("h2",null,"Streak calendar"),
+      monthInput),
+    grid,
+    h("div",{class:"calendar-legend"},h("span",{class:"legend-dot"}),h("span",null,"All planned activities completed"))));
+}
+
 function moveDay(delta){
   var next=daySel+delta;
   wkSel+=Math.floor(next/7);
@@ -400,7 +492,7 @@ function iconButton(icon,label,fn,extra,visibleText){
 function brandLockup(){
   return h("div",{class:"brand-lockup"},
     h("img",{class:"brand-mark",src:"brand-icon.svg",alt:""}),
-    h("h1",null,"LogMyWorkouts"));
+    h("h1",null,"MyWorkouts"));
 }
 
 function renderPlans(){
@@ -596,10 +688,10 @@ function readable(){
   return out;
 }
 function exportText(){
-  return JSON.stringify({app:"LogMyWorkouts",version:3,exportedAt:new Date().toISOString(),programStart:state.start,
+  return JSON.stringify({app:"MyWorkouts",version:3,exportedAt:new Date().toISOString(),programStart:state.start,
     log:readable(),bodyChecks:state.body,raw:{t:state.t,s:state.s,body:state.body,p:state.p,templates:state.templates,start:state.start}},null,1);
 }
-function fileName(){return "LogMyWorkouts-"+iso(new Date())+".json";}
+function fileName(){return "MyWorkouts-"+iso(new Date())+".json";}
 function doDownload(){
   var blob=new Blob([exportText()],{type:"application/json"});
   var a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=fileName();
@@ -611,7 +703,7 @@ function doShare(){
   try{
     var f=new File([exportText()],fileName(),{type:"application/json"});
     if(navigator.canShare&&navigator.canShare({files:[f]})){
-      navigator.share({files:[f],title:"LogMyWorkouts"}).catch(function(){});
+      navigator.share({files:[f],title:"MyWorkouts"}).catch(function(){});
       return;
     }
   }catch(e){}
@@ -625,7 +717,7 @@ function onPick(ev){
       var o=JSON.parse(String(r.result)); var raw=(o&&o.raw)?o.raw:o;
       if(!raw||typeof raw.s!=="object")throw new Error("bad");
       importPending=normalize(raw); backupMsg=""; 
-    }catch(e){importPending=null;backupMsg="That file is not a LogMyWorkouts backup.";backupOk=false;}
+    }catch(e){importPending=null;backupMsg="That file is not a MyWorkouts backup.";backupOk=false;}
     render();
   };
   r.readAsText(f); ev.target.value="";
