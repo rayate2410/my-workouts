@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>LogMyWorkouots</title>
+<title>LogMyWorkouts</title>
 <style>
 /* Layout: one narrow column built for a phone. Week strip, then seven day rows;
    gym days open into tick lists with a kg box per lift. */
@@ -45,14 +45,6 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--teal);outline-o
 .totals div{font-size:12px;color:var(--hero-mute);text-transform:uppercase;letter-spacing:.06em}
 .totals b{display:block;font-family:var(--f-head);font-size:20px;color:var(--hero-ink);letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums}
 .totals b span{font-size:13px;color:var(--hero-mute);font-weight:500}
-
-.weeks{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 8px;scrollbar-width:thin;scroll-snap-type:x proximity}
-.wk{flex:0 0 auto;min-width:64px;padding:8px 10px;border-radius:12px;background:var(--surface);border:1.5px solid var(--line);text-align:center;scroll-snap-align:center}
-.wk b{display:block;font-family:var(--f-head);font-size:15px}
-.wk small{display:block;color:var(--mute);font-size:11px;font-variant-numeric:tabular-nums}
-.wk[aria-current="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
-.wk[aria-current="true"] small{color:var(--bg);opacity:.75}
-.wk.now b::after{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--orange);margin-left:5px;vertical-align:middle}
 
 .days{display:flex;flex-direction:column;gap:10px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
@@ -130,9 +122,13 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .page-head{display:flex;align-items:center;gap:8px}
 .page-head h2{flex:1;font-family:var(--f-head);font-size:18px;margin:0}
 .icon-btn.text-icon{width:auto;flex-basis:auto;padding:0 12px;display:flex;gap:8px;font-size:13px;font-weight:600}
-.wk-nav{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.wk-nav .icon-btn{width:44px;height:44px;flex-basis:44px}
-.wk-current{font-size:13px;font-weight:600;text-align:center}
+.day-nav{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:10px;padding:10px 12px;border-radius:16px;background:var(--surface);border:1px solid var(--line)}
+.day-nav .icon-btn{width:44px;height:44px;flex-basis:44px}
+.day-heading{display:flex;flex-direction:column;align-items:center;text-align:center;line-height:1.35}
+.day-heading strong{font-family:var(--f-head);font-size:18px}
+.day-heading span{font-size:13px;color:var(--mute)}
+.day-heading small{font-size:11px;color:var(--teal);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.today-link{align-self:center;justify-self:center;color:var(--teal);font-size:13px;font-weight:600;padding:5px 10px}
 @media (max-width:380px){.exercise-editor{grid-template-columns:minmax(0,1fr) 48px 60px 34px 38px;gap:4px}.exercise-editor .icon-btn{width:38px;flex-basis:38px}}
 </style>
 </head>
@@ -188,6 +184,7 @@ var LS="recomp-log-v1";
 var state={t:0,s:{},body:{},p:{},templates:{},start:isoDate(monday(new Date()))};
 var open={};
 var wkSel=1;
+var daySel=0;
 var page="log", editorTarget=null;
 
 function normalize(d){
@@ -318,10 +315,10 @@ function totals(){
 
 function render(){
   var tp=todayPos();
-  var sy=window.scrollY||0, oldStrip=app.querySelector(".weeks"), sx=oldStrip?oldStrip.scrollLeft:-1;
+  var sy=window.scrollY||0;
   app.textContent="";
   app.appendChild(h("header",{class:"page-head"},
-    h("h2",null,"LogMyWorkouots"),
+    h("h2",null,"LogMyWorkouts"),
     page!=="editor"?iconButton(page==="log"?"edit":"back",page==="log"?"Open workout plans":"Back to workouts",function(){page=page==="log"?"plans":"log";editorTarget=null;render();},"text-icon",page==="log"?"Plans":"Log"):null));
   if(page==="plans"){renderPlans();window.scrollTo(0,0);return;}
   if(page==="editor"){renderPlanEditor();window.scrollTo(0,0);return;}
@@ -331,36 +328,28 @@ function render(){
     h("div",{class:"totals"},
       h("div",null,"Workouts completed",h("b",null,String(tt))))));
 
-  var strip=h("nav",{class:"weeks","aria-label":"Weeks"});
-  for(var wk=wkSel-6;wk<=wkSel+6;wk++){(function(wk){
-    var gd=0; DAYS.forEach(function(d){if(gymStatus(wk,d).k==="done")gd++;});
-    var b=h("button",{class:"wk"+(tp.i>=0&&tp.wk===wk?" now":""),"aria-current":wk===wkSel?"true":"false","data-wk":wk,
-      onclick:function(){wkSel=wk;render();}},
-      h("b",null,fmt(dateOf(wk,0))),h("small",null,String(dateOf(wk,0).getFullYear())),h("small",null,gd+" done"));
-    strip.appendChild(b);
-  })(wk);}
-  app.appendChild(strip);
-
-  app.appendChild(h("div",{class:"wk-nav"},
-    iconButton("back","Previous week",function(){wkSel--;render();}),
-    h("button",{class:"btn wk-current",onclick:function(){wkSel=todayPos().wk;render();}},"Week of "+dateOf(wkSel,0).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})+(wkSel===todayPos().wk?" · Current":" · Go to current")),
-    iconButton("next","Next week",function(){wkSel++;render();})));
-
-  var list=h("div",{class:"days"});
-  DAYS.forEach(function(d,i){
-    var dt=dateOf(wkSel,i);
-    var isToday=(tp.wk===wkSel&&tp.i===i);
-    var p=planFor(wkSel,d);
-    list.appendChild(!p?emptyCard(d,dt,isToday):(p.exercises.length?gymCard(d,dt,isToday):walkCard(d,dt,isToday)));
-  });
-  app.appendChild(list);
+  var day=DAYS[daySel], dt=dateOf(wkSel,daySel);
+  var isToday=(tp.wk===wkSel&&tp.i===daySel);
+  app.appendChild(h("div",{class:"day-nav"},
+    iconButton("back","Previous day",function(){moveDay(-1);}),
+    h("div",{class:"day-heading"},
+      h("strong",null,dt.toLocaleDateString("en-IN",{weekday:"long"})),
+      h("span",null,dt.toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})),
+      isToday?h("small",null,"Today"):null),
+    iconButton("next","Next day",function(){moveDay(1);})));
+  if(!isToday)app.appendChild(h("button",{class:"today-link",onclick:function(){var p=todayPos();wkSel=p.wk;daySel=p.i;render();}},"Go to today"));
+  var plan=planFor(wkSel,day);
+  app.appendChild(!plan?emptyCard(day,dt,isToday):(plan.exercises.length?gymCard(day,dt,isToday):walkCard(day,dt,isToday)));
   app.appendChild(backupCard());
   statusEl=h("p",{class:"foot"}); paintStatus(); app.appendChild(statusEl);
-
-  var cur=strip.querySelector('[aria-current="true"]');
-  if(sx>=0){strip.scrollLeft=sx;}
-  else if(cur){strip.scrollLeft=Math.max(0,cur.offsetLeft-strip.clientWidth/2+cur.offsetWidth/2);}
   window.scrollTo(0,sy);
+}
+
+function moveDay(delta){
+  var next=daySel+delta;
+  wkSel+=Math.floor(next/7);
+  daySel=((next%7)+7)%7;
+  render();
 }
 
 function iconButton(icon,label,fn,extra,visibleText){
@@ -477,7 +466,7 @@ function planEditor(d,plan,type){
 function gymCard(d,dt,isToday){
   var key=keyFor(wkSel,d.k), plan=planFor(wkSel,d);
   var gs=gymStatus(wkSel,d);
-  var isOpen=open[key]===undefined?(isToday):open[key];
+  var isOpen=open[key]===undefined?true:open[key];
   var card=h("div",{class:"card g-"+(d.g||"o")+(isOpen?" open":"")+(isToday?" today":"")+(gs.k==="skip"?" skipped":"")});
   var label=gs.k==="skip"?"Skipped":(gs.k==="done"?"Done":gs.done+"/"+gs.n);
   var head=h("button",{class:"ghead","aria-expanded":isOpen?"true":"false",onclick:function(){
@@ -546,10 +535,10 @@ function readable(){
   return out;
 }
 function exportText(){
-  return JSON.stringify({app:"LogMyWorkouots",version:2,exportedAt:new Date().toISOString(),programStart:state.start,
+  return JSON.stringify({app:"LogMyWorkouts",version:2,exportedAt:new Date().toISOString(),programStart:state.start,
     log:readable(),bodyChecks:state.body,raw:{t:state.t,s:state.s,body:state.body,p:state.p,templates:state.templates,start:state.start}},null,1);
 }
-function fileName(){return "logmyworkouots-"+iso(new Date())+".json";}
+function fileName(){return "LogMyWorkouts-"+iso(new Date())+".json";}
 function doDownload(){
   var blob=new Blob([exportText()],{type:"application/json"});
   var a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=fileName();
@@ -561,7 +550,7 @@ function doShare(){
   try{
     var f=new File([exportText()],fileName(),{type:"application/json"});
     if(navigator.canShare&&navigator.canShare({files:[f]})){
-      navigator.share({files:[f],title:"LogMyWorkouots"}).catch(function(){});
+      navigator.share({files:[f],title:"LogMyWorkouts"}).catch(function(){});
       return;
     }
   }catch(e){}
@@ -575,7 +564,7 @@ function onPick(ev){
       var o=JSON.parse(String(r.result)); var raw=(o&&o.raw)?o.raw:o;
       if(!raw||typeof raw.s!=="object")throw new Error("bad");
       importPending=normalize(raw); backupMsg=""; 
-    }catch(e){importPending=null;backupMsg="That file is not a LogMyWorkouots backup.";backupOk=false;}
+    }catch(e){importPending=null;backupMsg="That file is not a LogMyWorkouts backup.";backupOk=false;}
     render();
   };
   r.readAsText(f); ev.target.value="";
@@ -600,7 +589,7 @@ function backupCard(){
 }
 
 /* ---------- start ---------- */
-var tp0=todayPos(); wkSel=tp0.wk;
+var tp0=todayPos(); wkSel=tp0.wk; daySel=tp0.i;
 render();
 
 /* offline: service worker + durable storage */
