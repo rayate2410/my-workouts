@@ -7,7 +7,7 @@ Then open the page URL once in Chrome on your Android phone:
   menu (three dots) > Install app (or Add to Home screen).
 After the first load it works fully offline. Data is saved on the phone.
 
-Use Previous/Next or the week strip to navigate. Create, edit, or delete a workout on an individual date; changes do not affect other days.
+Use Previous/Next or the week strip to navigate. Open Plans to create reusable weekday workouts that appear in future weeks. Use the edit icon on a date to make a one-day alternate, restore its weekday plan, or remove that day's workout. Exercise names, sets, reps, and bodyweight options have separate fields; use "+ Add exercise" to add rows.
 
 Backup: tap "Export data" at the bottom of the app. Restore: tap "Import" and pick an exported .json file.
 
