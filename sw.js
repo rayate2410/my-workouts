@@ -1,5 +1,5 @@
 /* Offline cache. Bump CACHE when index.html changes so phones pick up the new version. */
-const CACHE = "LogMyWorkouts-v4";
+const CACHE = "LogMyWorkouts-v5";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

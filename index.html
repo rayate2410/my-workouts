@@ -73,7 +73,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--teal);outline-o
 .gbody{display:none;border-top:1px solid var(--line);padding:4px 12px 12px}
 .card.open .gbody{display:block}
 .rest{color:var(--mute);font-size:12px;margin:8px 2px 4px}
-.ex{display:grid;grid-template-columns:44px minmax(0,1fr) 78px;align-items:center;gap:6px;min-height:54px;border-bottom:1px solid var(--line)}
+.ex{display:grid;grid-template-columns:44px minmax(0,1fr) 100px;align-items:center;gap:6px;min-height:54px;border-bottom:1px solid var(--line)}
 .ex:last-of-type{border-bottom:0}
 .ck{width:44px;height:44px;display:grid;place-items:center}
 .ck i{width:28px;height:28px;border-radius:9px;border:2px solid var(--line2);display:grid;place-items:center;color:transparent;transition:background .12s}
@@ -84,6 +84,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--teal);outline-o
 .ex.isdone .exn b{color:var(--mute);text-decoration:line-through;text-decoration-color:var(--line2)}
 .kg{width:100%;font:inherit;font-size:16px;text-align:right;padding:8px 9px;border-radius:10px;border:1.5px solid var(--line);background:var(--bg);color:var(--ink);font-variant-numeric:tabular-nums}
 .kg::placeholder{color:var(--skip)}
+.measure{display:flex;align-items:center;gap:5px;min-width:0}
+.measure .kg{min-width:0;flex:1}
+.measure small{color:var(--mute);font-size:12px}
 .card.skipped .ex{opacity:.4}
 .gfoot{display:flex;justify-content:flex-end;align-items:center;gap:6px;margin-top:8px}
 
@@ -112,11 +115,12 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .plan-edit{padding:14px}
 .plan-edit label{display:block;color:var(--mute);font-size:12px;margin:10px 0 4px}
 .plan-edit input{width:100%;min-height:44px;font:inherit;padding:9px 10px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
-.exercise-editor{display:grid;grid-template-columns:minmax(0,1fr) 58px 72px 38px 40px;gap:6px;align-items:center;margin:8px 0}
-.exercise-editor input{min-width:0}
-.exercise-editor .icon-btn{width:40px;flex-basis:40px}
-.bw-toggle{display:flex!important;align-items:center;gap:3px;margin:0!important;font-size:11px!important}
-.bw-toggle input{width:16px;min-height:16px}
+.exercise-editor{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:6px;align-items:center;margin:8px 0;padding:8px;border:1px solid var(--line);border-radius:12px}
+.exercise-editor input,.exercise-editor select{min-width:0;width:100%;min-height:42px;font:inherit;padding:8px;border:1.5px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink)}
+.exercise-editor .exercise-name{grid-column:1}
+.exercise-editor .icon-btn{grid-column:2;grid-row:1;width:40px;flex-basis:40px}
+.exercise-meta{grid-column:1 / -1;display:grid;grid-template-columns:68px minmax(0,1fr) minmax(0,1fr);gap:6px}
+.exercise-meta select{font-size:13px}
 .plan-day{display:flex;align-items:center;gap:10px;padding:12px 14px}
 .plan-day .lab{flex:1;min-width:0}
 .page-head{display:flex;align-items:center;gap:8px}
@@ -129,7 +133,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .day-heading span{font-size:13px;color:var(--mute)}
 .day-heading small{font-size:11px;color:var(--teal);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 .today-link{align-self:center;justify-self:center;color:var(--teal);font-size:13px;font-weight:600;padding:5px 10px}
-@media (max-width:380px){.exercise-editor{grid-template-columns:minmax(0,1fr) 48px 60px 34px 38px;gap:4px}.exercise-editor .icon-btn{width:38px;flex-basis:38px}}
+@media (max-width:380px){.ex{grid-template-columns:40px minmax(0,1fr) 88px;gap:4px}.exercise-meta{grid-template-columns:60px minmax(0,1fr) minmax(0,1fr);gap:4px}}
 </style>
 </head>
 <body>
@@ -244,14 +248,23 @@ function gymStatus(wk,d){
   var c=0; if(s)for(var id in s.ex){if(s.ex[id]&&s.ex[id].d)c++;}
   return {k:n===0?(s&&s.st==="done"?"done":""):(c>=n?"done":(c>0?"part":"")),done:c,n:n};
 }
-function lastKg(wk,id){
+function exerciseUnit(x){return x.unit||(x.bw?"bodyweight":"kg");}
+function lastMeasure(wk,x){
+  var unit=exerciseUnit(x);
   for(var w=wk-1;w>=wk-520;w--){
     for(var i=0;i<DAYS.length;i++){
       var s=peek(w,DAYS[i].k);
-      if(s&&s.ex&&s.ex[id]&&s.ex[id].kg)return s.ex[id].kg;
+      var e=s&&s.ex&&s.ex[x.id];
+      if(!e)continue;
+      var value=e.v!=null?e.v:e.kg, previousUnit=e.u||(e.kg!=null?"kg":unit);
+      if(value!=null&&previousUnit===unit)return value;
     }
   }
   return "";
+}
+function loggedMeasure(e,unit){
+  if(e.v!=null)return e.u===unit?e.v:"";
+  return unit==="kg"&&e.kg!=null?e.kg:"";
 }
 
 /* ---------- dates ---------- */
@@ -414,13 +427,25 @@ function planEditor(d,plan,type){
   var exerciseRows=[];
   function addExercise(item){
     item=item||{};
-    var row={id:item.id||"",name:h("input",{type:"text",maxlength:"100","aria-label":"Exercise name",placeholder:"Exercise",value:item.n||""}),
+    var unit=h("select",{"aria-label":"Tracking unit for "+(item.n||"exercise")},
+      h("option",{value:"kg"},"kg · weight"),
+      h("option",{value:"lb"},"lb · weight"),
+      h("option",{value:"km"},"km · distance"),
+      h("option",{value:"mi"},"mi · distance"),
+      h("option",{value:"min"},"min · time"),
+      h("option",{value:"sec"},"sec · time"),
+      h("option",{value:"bodyweight"},"Bodyweight"),
+      h("option",{value:"none"},"No value"));
+    unit.value=exerciseUnit(item);
+    var row={id:item.id||"",name:null,
       sets:h("input",{type:"number",min:"1",max:"99","aria-label":"Sets",placeholder:"Sets",value:item.s||3}),
       reps:h("input",{type:"text",maxlength:"40","aria-label":"Reps or duration",placeholder:"Reps",value:item.r||""}),
-      bw:h("input",{type:"checkbox","aria-label":"Bodyweight exercise",checked:!!item.bw})};
-    var el=h("div",{class:"exercise-editor"},row.name,row.sets,row.reps,
-      h("label",{class:"bw-toggle"},row.bw,h("span",null,"BW")),
+      unit:unit};
+    row.name=h("input",{class:"exercise-name",type:"text",maxlength:"100","aria-label":"Exercise name",placeholder:"Exercise",value:item.n||"",oninput:function(){unit.setAttribute("aria-label","Tracking unit for "+(row.name.value||"exercise"));}});
+    var el=h("div",{class:"exercise-editor"},
+      row.name,
       iconButton("trash","Remove exercise",function(){row.el.remove();exerciseRows=exerciseRows.filter(function(x){return x!==row;});}));
+    el.appendChild(h("div",{class:"exercise-meta"},row.sets,row.reps,unit));
     row.el=el;exerciseRows.push(row);rows.appendChild(el);
   }
   existing.forEach(addExercise);
@@ -429,6 +454,7 @@ function planEditor(d,plan,type){
     h("label",null,"Workout name"),title,
     h("label",null,"Details"),details,
     h("label",null,"Exercises"),
+    h("p",{class:"note"},"Choose kg/lb for weights, km/mi for distance, or min/sec for time."),
     rows,
     iconButton("plus","Add exercise",function(){addExercise();},"text-icon","Add exercise"),
     h("label",null,"Rest instructions"),rest,
@@ -440,7 +466,7 @@ function planEditor(d,plan,type){
         for(var i=0;i<exerciseRows.length;i++){
           var x=exerciseRows[i], exercise=x.name.value.trim(), sets=parseInt(x.sets.value,10), reps=x.reps.value.trim();
           if(!exercise||!sets||sets<1||!reps){message.textContent="Complete the exercise name, sets, and reps for each row.";return;}
-          items.push({id:x.id||"custom-"+Date.now()+"-"+i,n:exercise,s:sets,r:reps,bw:x.bw.checked});
+          items.push({id:x.id||"custom-"+Date.now()+"-"+i,n:exercise,s:sets,r:reps,unit:x.unit.value});
         }
         var saved={title:name,details:details.value.trim(),rest:rest.value.trim(),exercises:items};
         if(type==="template")state.templates[d.k]=saved;
@@ -482,6 +508,7 @@ function gymCard(d,dt,isToday){
   var s=peek(wkSel,d.k);
   plan.exercises.forEach(function(x){
     var e=(s&&s.ex&&s.ex[x.id])||{};
+    var unit=exerciseUnit(x);
     var on=!!e.d;
     var ck=h("button",{class:"ck",role:"checkbox","aria-checked":on?"true":"false","aria-label":x.n,onclick:function(){
         var z=sess(wkSel,d.k); if(z.st==="skip")z.st="";
@@ -489,13 +516,13 @@ function gymCard(d,dt,isToday){
       h("i",{html:TICK}));
     var row=h("div",{class:"ex"+(on?" isdone":"")},ck,
       h("div",{class:"exn"},h("b",null,x.n),h("small",null,x.s+" x "+x.r)));
-    if(x.bw){row.appendChild(h("span"));}
+    if(unit==="bodyweight"||unit==="none"){row.appendChild(h("span"));}
     else{
-      var lk=lastKg(wkSel,x.id);
-      var inp=h("input",{class:"kg",type:"text",inputmode:"decimal",placeholder:lk?lk+" kg":"kg","aria-label":x.n+" weight in kg",id:"kg-"+wkSel+"-"+x.id,
-        oninput:function(){var z=sess(wkSel,d.k); z.ex[x.id]=z.ex[x.id]||{}; z.ex[x.id].kg=inp.value.replace(/[^0-9.]/g,"").slice(0,6); save();}});
-      inp.value=e.kg||"";
-      row.appendChild(inp);
+      var previous=lastMeasure(wkSel,x);
+      var inp=h("input",{class:"kg",type:"text",inputmode:"decimal",placeholder:previous?String(previous):"—","aria-label":x.n+" value in "+unit,id:"measure-"+wkSel+"-"+x.id,
+        oninput:function(){var z=sess(wkSel,d.k); z.ex[x.id]=z.ex[x.id]||{}; z.ex[x.id].v=inp.value.replace(/[^0-9.]/g,"").slice(0,8); z.ex[x.id].u=unit; save();}});
+      inp.value=loggedMeasure(e,unit);
+      row.appendChild(h("div",{class:"measure"},inp,h("small",null,unit)));
     }
     body.appendChild(row);
   });
@@ -524,8 +551,9 @@ function readable(){
     var items=[],any=false;
     plan.exercises.forEach(function(x){
       var e=(s.ex&&s.ex[x.id])||{};
-      if(e.d||e.kg)any=true;
-      items.push({lift:x.n,sets:x.s,reps:x.r,done:!!e.d,kg:e.kg?parseFloat(e.kg):null});
+      var unit=exerciseUnit(x), value=e.v!=null?e.v:e.kg, loggedUnit=e.u||(e.kg!=null?"kg":unit);
+      if(e.d||value)any=true;
+      items.push({lift:x.n,sets:x.s,reps:x.r,done:!!e.d,unit:loggedUnit,value:value!=null?parseFloat(value):null,kg:loggedUnit==="kg"&&value!=null?parseFloat(value):null});
     });
     if(!any&&!s.st)return;
     var status=s.st==="skip"?"skipped":(gymStatus(wk,d).k==="done"?"done":(gymStatus(wk,d).k==="part"?"partial":"not started"));
@@ -535,7 +563,7 @@ function readable(){
   return out;
 }
 function exportText(){
-  return JSON.stringify({app:"LogMyWorkouts",version:2,exportedAt:new Date().toISOString(),programStart:state.start,
+  return JSON.stringify({app:"LogMyWorkouts",version:3,exportedAt:new Date().toISOString(),programStart:state.start,
     log:readable(),bodyChecks:state.body,raw:{t:state.t,s:state.s,body:state.body,p:state.p,templates:state.templates,start:state.start}},null,1);
 }
 function fileName(){return "LogMyWorkouts-"+iso(new Date())+".json";}
