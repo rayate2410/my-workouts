@@ -268,9 +268,13 @@ function normalize(d){
   }
   Object.keys(o.templates).forEach(function(key){
     var plan=o.templates[key];
-    normalizePlan(plan);
-    if(plan&&!o.workouts["legacy-"+key]){
-      o.workouts["legacy-"+key]={id:"legacy-"+key,title:plan.title||"Workout",details:plan.details||"",rest:plan.rest||"",exercises:plan.exercises.map(function(x){return {id:x.id,s:x.s,r:x.r,unit:x.unit};})};
+    var legacyId="legacy-"+key;
+    if(plan&&Array.isArray(plan.exercises)){
+      normalizePlan(plan);
+      if(!o.workouts[legacyId]){
+        o.workouts[legacyId]={id:legacyId,title:plan.title||"Workout",details:plan.details||"",rest:plan.rest||"",exercises:plan.exercises.map(function(x){return {id:x.id,s:x.s,r:x.r,unit:x.unit};})};
+      }
+      if(!plan.workoutId)plan.workoutId=legacyId;
     }
   });
   Object.keys(o.p).forEach(function(key){normalizePlan(o.p[key]);});
@@ -304,7 +308,14 @@ function peek(wk,day){return state.s[wk+"-"+day]||null;}
 function planFor(wk,d){
   var key=keyFor(wk,d.k);
   if(Object.prototype.hasOwnProperty.call(state.p,key))return state.p[key];
-  return state.templates[d.k]||null;
+  var scheduled=state.templates[d.k];
+  if(scheduled&&scheduled.workoutId){
+    var workout=state.workouts[scheduled.workoutId];
+    if(!workout)return null;
+    return {title:workout.title||"Workout",details:workout.details||"",rest:workout.rest||"",
+      exercises:workout.exercises||[],workoutId:scheduled.workoutId};
+  }
+  return scheduled||null;
 }
 function gymStatus(wk,d){
   var plan=planFor(wk,d), s=peek(wk,d.k), n=plan?plan.exercises.length:0;
@@ -443,9 +454,9 @@ function appendMenu(){
         brandLockup(),
         iconButton("close","Close menu",function(){menuOpen=false;render();})),
       h("nav",{"aria-label":"Main menu"},
-        menuItem("log","Today's log"),
-        menuItem("plans","Workout plans"),
-        menuItem("workouts","My workouts"),
+        menuItem("log","Today's workout"),
+        menuItem("plans","Weekly schedule"),
+        menuItem("workouts","Workout library"),
         menuItem("backup","Backup"))));
   app.appendChild(backdrop);
 }
@@ -542,27 +553,38 @@ function brandLockup(){
 
 function renderPlans(){
   app.appendChild(h("section",{class:"hero"},
-    h("p",null,"Set up a reusable plan for each weekday. It appears automatically in every week unless you change that date's workout.")));
+    h("p",null,"Choose a saved workout for each weekday. This schedule repeats every week; date-specific workouts remain unchanged.")));
+  app.appendChild(h("div",{class:"page-head"},h("h2",null,"Weekly schedule")));
+  var workoutIds=Object.keys(state.workouts);
+  if(!workoutIds.length)app.appendChild(h("section",{class:"card body"},
+    h("p",{class:"note"},"No saved workouts yet. Create workouts in the Workout library, then assign them here.")));
   DAYS.forEach(function(d){
-    var plan=state.templates[d.k];
+    var scheduled=state.templates[d.k], selected=scheduled&&scheduled.workoutId||"";
+    var picker=h("select",{"aria-label":"Workout for "+d.n,onchange:function(){
+      if(picker.value)state.templates[d.k]={workoutId:picker.value};
+      else delete state.templates[d.k];
+      save();render();
+    }},
+      h("option",{value:""},"No workout"));
+    workoutIds.forEach(function(id){
+      var workout=state.workouts[id];
+      if(workout)picker.appendChild(h("option",{value:id},workout.title||"Workout"));
+    });
+    picker.value=selected;
     app.appendChild(h("section",{class:"card plan-day"},
       h("div",{class:"lab"},
         h("div",{class:"dname"},d.n),
-        h("div",{class:"ddate"},plan?plan.title+" · "+plan.exercises.length+" exercises":"No default workout")),
-      h("div",{class:"plan-tools"},
-        iconButton(plan?"edit":"plus",plan?"Edit "+d.n+" plan":"Create "+d.n+" plan",function(){editorTarget={type:"template",day:d};page="editor";render();},""),
-        plan?iconButton("trash","Delete "+d.n+" plan",function(){
-          if(!window.confirm("Remove the default "+d.n+" workout? Date-specific workouts will stay unchanged."))return;
-          delete state.templates[d.k];save();render();
-        },"danger"):null)));
+        h("div",{class:"ddate"},selected&&state.workouts[selected]?
+          (state.workouts[selected].exercises||[]).length+" exercises":"No workout assigned")),
+      picker));
   });
 }
 
 function renderWorkouts(){
   app.appendChild(h("section",{class:"hero"},
-    h("p",null,"Build reusable workouts from your exercise library. Add one or more workouts to a day's plan, then customize the exercise list for that date.")));
+    h("p",null,"Create reusable workouts and manage your exercise library. Assign workouts to weekdays in the Weekly schedule, or combine them for a single day from Today's workout.")));
   app.appendChild(h("div",{class:"page-head"},
-    h("h2",null,"My workouts"),
+    h("h2",null,"Workout library"),
     iconButton("plus","Create workout",function(){editorTarget={type:"workout",id:""};page="editor";render();},"primary")));
   var ids=Object.keys(state.workouts);
   if(!ids.length)app.appendChild(h("section",{class:"card body"},h("p",{class:"note"},"No saved workouts yet. Create one to reuse its exercises in daily plans.")));
@@ -576,8 +598,12 @@ function renderWorkouts(){
       h("div",{class:"plan-tools"},
         iconButton("edit","Edit "+(workout.title||"workout"),function(){editorTarget={type:"workout",id:id};page="editor";render();}),
         iconButton("trash","Delete "+(workout.title||"workout"),function(){
-          if(!window.confirm("Delete this saved workout? Existing day plans will not change."))return;
-          delete state.workouts[id];save();render();
+          if(!window.confirm("Delete this saved workout and unassign it from weekdays? Date-specific workouts will stay unchanged."))return;
+          delete state.workouts[id];
+          DAYS.forEach(function(day){
+            if(state.templates[day.k]&&state.templates[day.k].workoutId===id)delete state.templates[day.k];
+          });
+          save();render();
         },"danger"))));
   });
 }
@@ -585,6 +611,7 @@ function renderWorkouts(){
 function renderPlanEditor(){
   if(!editorTarget){page="plans";render();return;}
   var type=editorTarget.type, d=editorTarget.day, key=d?keyFor(wkSel,d.k):"";
+  if(type==="template"){page="plans";editorTarget=null;render();return;}
   var plan=type==="workout"?(state.workouts[editorTarget.id]||{title:"",details:"",rest:"",exercises:[]}):
     (type==="template"?state.templates[d.k]:(planFor(wkSel,d)||{title:"",details:"",rest:"",exercises:[]}));
   var backPage=type==="workout"?"workouts":(type==="template"?"plans":"log");
