@@ -388,7 +388,7 @@ function render(){
 
   var day=DAYS[daySel], dt=dateOf(wkSel,daySel);
   var isToday=(tp.wk===wkSel&&tp.i===daySel);
-  app.appendChild(streakCard(tp));
+  app.appendChild(streakCard());
   app.appendChild(h("div",{class:"day-nav"},
     iconButton("back","Previous day",function(){moveDay(-1);}),
     h("div",{class:"day-heading"},
@@ -442,17 +442,20 @@ function streakLength(){
   return count;
 }
 
-function streakCard(tp){
+function streakCard(){
   var week=h("div",{class:"streak-week"});
+  var end=today();
   for(var i=0;i<7;i++){
-    var date=dateOf(tp.wk,i), done=isDayDone(date), todayDate=isoDate(date)===isoDate(today());
+    var date=new Date(end);
+    date.setDate(date.getDate()+i-6);
+    var done=isDayDone(date), todayDate=i===6;
     week.appendChild(h("span",{class:"streak-day"+(done?" done":"")+(todayDate?" today":"")},
       h("span",null,date.toLocaleDateString("en-IN",{weekday:"short"}).slice(0,1)),
       h("span",{class:"streak-dot"},done?"✓":String(date.getDate()))));
   }
   return h("button",{class:"streak-card",type:"button","aria-label":"View streak calendar",
     onclick:function(){streakMonth=isoDate(today()).slice(0,7);page="streaks";render();}},
-    h("span",{class:"streak-top"},h("strong",null,"Streaks · this week"),h("span",{class:"streak-count"},streakLength()+" day streak")),
+    h("span",{class:"streak-top"},h("strong",null,"Streaks · last 7 days"),h("span",{class:"streak-count"},streakLength()+" day streak")),
     week);
 }
 
