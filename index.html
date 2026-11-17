@@ -1031,12 +1031,6 @@ function driveStatusText(){
   var last=driveLastSync?" Last synced "+new Date(driveLastSync).toLocaleString()+".":" No Drive backup yet.";
   return (driveStatus?driveStatus+" ":"")+(driveConnected()?"Connected.":"Not connected.")+last;
 }
-function initializeDriveAuth(){
-  if(!driveSetup||driveBusy)return;
-  driveBusy=true;driveStatus="Reconnecting to Google Drive…";render();
-  requestDriveToken(null,"",false);
-}
-
 function backupCard(){
   var pick=h("input",{type:"file",accept:".json,application/json",id:"imp","aria-label":"Choose backup file",onchange:onPick});
   var connected=driveSetup&&driveConnected();
@@ -1072,9 +1066,6 @@ function backupCard(){
 /* ---------- start ---------- */
 var tp0=todayPos(); wkSel=tp0.wk; daySel=tp0.i;
 render();
-var googleScript=document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
-if(window.google&&google.accounts&&google.accounts.oauth2)initializeDriveAuth();
-else if(googleScript)googleScript.addEventListener("load",initializeDriveAuth,{once:true});
 
 /* offline: service worker + durable storage */
 if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
