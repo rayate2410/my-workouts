@@ -127,6 +127,16 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .workout-add select{min-width:0;min-height:44px;padding:8px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
 .plan-day{display:flex;align-items:center;gap:10px;padding:12px 14px}
 .plan-day .lab{flex:1;min-width:0}
+.schedule-day{display:flex;flex-direction:column;align-items:stretch;gap:9px;padding:13px 14px}
+.schedule-day-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.schedule-day-name{font-family:var(--f-head);font-weight:650;font-size:15px}
+.schedule-day-summary{color:var(--mute);font-size:12px}
+.schedule-picker{position:relative}
+.schedule-select{appearance:none;width:100%;min-height:48px;padding:0 42px 0 12px;border:1.5px solid var(--line2);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
+.schedule-select:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
+.schedule-select option{background:var(--surface);color:var(--ink)}
+.schedule-chevron{position:absolute;top:50%;right:12px;transform:translateY(-50%);color:var(--mute);pointer-events:none}
+.schedule-chevron svg{display:block}
 .app-head{display:flex;align-items:center;gap:12px;min-height:48px}
 .app-head .icon-btn{width:44px;height:44px;flex-basis:44px}
 .app-head .menu-trigger{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(20,33,61,.08)}
@@ -184,6 +194,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 const CLIENT_ID = '94614380538-vptj6rt9qna9dpv8okgonl7s3kp6l3o1.apps.googleusercontent.com';
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_SYNC_KEY = "my-workouts-drive-last-sync-v1";
+const DRIVE_SETUP_KEY = "my-workouts-drive-setup-v1";
 var LEGACY_START=new Date(2026,10,16);
 function monday(d){var x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()-((x.getDay()+6)%7));return x;}
 function isoDate(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
@@ -558,25 +569,28 @@ function renderPlans(){
   var workoutIds=Object.keys(state.workouts);
   if(!workoutIds.length)app.appendChild(h("section",{class:"card body"},
     h("p",{class:"note"},"No saved workouts yet. Create workouts in the Workout library, then assign them here.")));
-  DAYS.forEach(function(d){
+  var weekdayNames=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+  DAYS.forEach(function(d,index){
     var scheduled=state.templates[d.k], selected=scheduled&&scheduled.workoutId||"";
-    var picker=h("select",{"aria-label":"Workout for "+d.n,onchange:function(){
+    var picker=h("select",{class:"schedule-select","aria-label":"Workout for "+weekdayNames[index],onchange:function(){
       if(picker.value)state.templates[d.k]={workoutId:picker.value};
       else delete state.templates[d.k];
       save();render();
     }},
-      h("option",{value:""},"No workout"));
+      h("option",{value:""},"Choose a workout"));
     workoutIds.forEach(function(id){
       var workout=state.workouts[id];
       if(workout)picker.appendChild(h("option",{value:id},workout.title||"Workout"));
     });
     picker.value=selected;
-    app.appendChild(h("section",{class:"card plan-day"},
-      h("div",{class:"lab"},
-        h("div",{class:"dname"},d.n),
-        h("div",{class:"ddate"},selected&&state.workouts[selected]?
-          (state.workouts[selected].exercises||[]).length+" exercises":"No workout assigned")),
-      picker));
+    var summary=selected&&state.workouts[selected]?
+      (state.workouts[selected].exercises||[]).length+" exercises":"No workout assigned";
+    app.appendChild(h("section",{class:"card schedule-day"},
+      h("div",{class:"schedule-day-head"},
+        h("strong",{class:"schedule-day-name"},weekdayNames[index]),
+        h("span",{class:"schedule-day-summary"},summary)),
+      h("div",{class:"schedule-picker"},picker,
+        h("span",{class:"schedule-chevron","aria-hidden":"true",html:CHEV}))));
   });
 }
 
@@ -834,6 +848,8 @@ var importPending=null, backupMsg="", backupOk=false;
 var driveAccessToken="", driveTokenExpiry=0, driveTokenClient=null;
 var driveStatus="", driveBusy=false, pendingDriveAction=null, driveLastSync="";
 var pendingDriveRestore=false;
+var driveSetup=false;
+try{driveSetup=localStorage.getItem(DRIVE_SETUP_KEY)==="1";}catch(e){}
 try{driveLastSync=localStorage.getItem(DRIVE_SYNC_KEY)||"";}catch(e){}
 function iso(d){var m=d.getMonth()+1,dd=d.getDate();return d.getFullYear()+"-"+(m<10?"0":"")+m+"-"+(dd<10?"0":"")+dd;}
 function readable(){
@@ -912,8 +928,11 @@ function driveTokenCallback(response){
   }
   driveAccessToken=response.access_token;
   driveTokenExpiry=Date.now()+Math.max(0,(Number(response.expires_in)||3600)-60)*1000;
-  var pending=pendingDriveAction;pendingDriveAction=null;
+  driveSetup=true;
   driveStatus="Google Drive connected.";
+  try{localStorage.setItem(DRIVE_SETUP_KEY,"1");}
+  catch(e){driveStatus="Google Drive connected, but setup could not be saved on this device.";}
+  var pending=pendingDriveAction;pendingDriveAction=null;
   render();
   if(pending&&pending.action)runDriveAction(pending.action,pending.retried);
 }
@@ -941,7 +960,10 @@ function disconnectDrive(){
   var token=driveAccessToken;
   driveAccessToken="";driveTokenExpiry=0;pendingDriveAction=null;driveBusy=false;
   if(token&&window.google&&google.accounts&&google.accounts.oauth2)google.accounts.oauth2.revoke(token,function(){});
-  driveStatus="Google Drive disconnected.";render();
+  driveSetup=false;
+  try{localStorage.removeItem(DRIVE_SETUP_KEY);driveStatus="Google Drive disconnected.";}
+  catch(e){driveStatus="Google Drive disconnected, but setup could not be cleared on this device.";}
+  render();
 }
 async function driveFetch(url,options,action,retried){
   options=options||{};options.headers=options.headers||{};
@@ -1009,21 +1031,26 @@ function driveStatusText(){
   var last=driveLastSync?" Last synced "+new Date(driveLastSync).toLocaleString()+".":" No Drive backup yet.";
   return (driveStatus?driveStatus+" ":"")+(driveConnected()?"Connected.":"Not connected.")+last;
 }
+function initializeDriveAuth(){
+  if(!driveSetup||driveBusy)return;
+  driveBusy=true;driveStatus="Reconnecting to Google Drive…";render();
+  requestDriveToken(null,"",false);
+}
 
 function backupCard(){
   var pick=h("input",{type:"file",accept:".json,application/json",id:"imp","aria-label":"Choose backup file",onchange:onPick});
-  var connected=!!driveAccessToken;
+  var connected=driveSetup&&driveConnected();
   var drive=h("section",{class:"drive-backup"},
     h("h3",null,"Google Drive"),
     h("div",{class:"btns"},
       h("button",{class:"btn"+(connected?"":" main"),onclick:function(){
-        if(connected){disconnectDrive();return;}
+        if(driveSetup&&driveConnected()){disconnectDrive();return;}
         if(driveBusy)return;
         driveBusy=true;driveStatus="Connecting to Google Drive…";render();
         requestDriveToken(null,"consent",false);
-      }},connected?"Disconnect Google Drive":"Connect Google Drive"),
-      h("button",{class:"btn",disabled:!connected||driveBusy,onclick:function(){driveAction("backup");}},"Backup to Drive"),
-      h("button",{class:"btn",disabled:!connected||driveBusy,onclick:function(){driveAction("restore");}},"Restore from Drive")),
+      }},driveSetup?(connected?"Disconnect Google Drive":"Reconnect Google Drive"):"Set up Google Drive"),
+      h("button",{class:"btn",disabled:!driveSetup||driveBusy,onclick:function(){driveAction("backup");}},"Sync now"),
+      h("button",{class:"btn",disabled:!driveSetup||driveBusy,onclick:function(){driveAction("restore");}},"Restore from Drive")),
     h("p",{class:"note","aria-live":"polite"},driveStatusText()));
   var c=h("section",{class:"card body"},
     h("h2",null,"Backup"),
@@ -1045,6 +1072,9 @@ function backupCard(){
 /* ---------- start ---------- */
 var tp0=todayPos(); wkSel=tp0.wk; daySel=tp0.i;
 render();
+var googleScript=document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+if(window.google&&google.accounts&&google.accounts.oauth2)initializeDriveAuth();
+else if(googleScript)googleScript.addEventListener("load",initializeDriveAuth,{once:true});
 
 /* offline: service worker + durable storage */
 if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
