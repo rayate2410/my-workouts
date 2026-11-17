@@ -122,6 +122,9 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .exercise-editor .icon-btn{grid-column:2;grid-row:1;width:40px;flex-basis:40px}
 .exercise-meta{grid-column:1 / -1;display:grid;grid-template-columns:68px minmax(0,1fr) minmax(0,1fr);gap:6px}
 .exercise-meta select{font-size:13px}
+.exercise-new-name{grid-column:1 / -1}
+.workout-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center;margin:10px 0}
+.workout-add select{min-width:0;min-height:44px;padding:8px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
 .plan-day{display:flex;align-items:center;gap:10px;padding:12px 14px}
 .plan-day .lab{flex:1;min-width:0}
 .app-head{display:flex;align-items:center;gap:12px;min-height:48px}
@@ -224,7 +227,7 @@ function lifts(day,wk){
 
 /* ---------- state ---------- */
 var LS="recomp-log-v1";
-var state={t:0,s:{},body:{},p:{},templates:{},start:isoDate(monday(new Date()))};
+var state={t:0,s:{},body:{},p:{},templates:{},exercises:{},workouts:{},start:isoDate(monday(new Date()))};
 var open={};
 var wkSel=1;
 var daySel=0;
@@ -232,13 +235,15 @@ var page="log", editorTarget=null;
 var streakMonth=isoDate(today()).slice(0,7);
 
 function normalize(d){
-  var o={t:0,s:{},body:{},p:{},templates:{},start:isoDate(monday(new Date()))};
+  var o={t:0,s:{},body:{},p:{},templates:{},exercises:{},workouts:{},start:isoDate(monday(new Date()))};
   if(d&&typeof d==="object"){
     if(typeof d.t==="number")o.t=d.t;
     if(d.s&&typeof d.s==="object")o.s=d.s;
     if(d.body&&typeof d.body==="object")o.body=d.body;
     if(d.p&&typeof d.p==="object")o.p=d.p;
     if(d.templates&&typeof d.templates==="object")o.templates=d.templates;
+    if(d.exercises&&typeof d.exercises==="object")o.exercises=d.exercises;
+    if(d.workouts&&typeof d.workouts==="object")o.workouts=d.workouts;
     if(typeof d.start==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(d.start))o.start=d.start;
     else if(d.s)o.start=isoDate(LEGACY_START);
     if(d.s&&!d.p)Object.keys(d.s).forEach(function(key){
@@ -253,6 +258,26 @@ function normalize(d){
     });
     Object.keys(o.templates).forEach(function(key){if(o.templates[key]&&o.templates[key].plan)o.templates[key]=o.templates[key].plan;});
   }
+  function normalizePlan(plan){
+    if(!plan||!Array.isArray(plan.exercises))return;
+    plan.exercises=plan.exercises.map(function(item){
+      var id=item.id||"exercise-"+Date.now()+"-"+Math.random().toString(36).slice(2);
+      if(!o.exercises[id])o.exercises[id]={id:id,n:item.n||"Exercise"};
+      return {id:id,s:item.s||3,r:item.r||"",unit:item.unit||(item.bw?"bodyweight":"kg")};
+    });
+  }
+  Object.keys(o.templates).forEach(function(key){
+    var plan=o.templates[key];
+    normalizePlan(plan);
+    if(plan&&!o.workouts["legacy-"+key]){
+      o.workouts["legacy-"+key]={id:"legacy-"+key,title:plan.title||"Workout",details:plan.details||"",rest:plan.rest||"",exercises:plan.exercises.map(function(x){return {id:x.id,s:x.s,r:x.r,unit:x.unit};})};
+    }
+  });
+  Object.keys(o.p).forEach(function(key){normalizePlan(o.p[key]);});
+  Object.keys(o.workouts).forEach(function(key){
+    var workout=o.workouts[key];
+    if(workout&&Array.isArray(workout.exercises))normalizePlan(workout);
+  });
   return o;
 }
 try{var raw=localStorage.getItem(LS); if(raw)state=normalize(JSON.parse(raw));}catch(e){}
@@ -267,7 +292,7 @@ function save(){
 function flush(){
   if(!ref||writing||!dirty)return;
   writing=true; dirty=false;
-  var snap={v:3,t:state.t,s:state.s,body:state.body,p:state.p,templates:state.templates,start:state.start};
+  var snap={v:4,t:state.t,s:state.s,body:state.body,p:state.p,templates:state.templates,exercises:state.exercises,workouts:state.workouts,start:state.start};
   ref.set(snap).catch(function(){syncMode="local";paintStatus();}).then(function(){
     writing=false; if(dirty)flush();
   });
@@ -289,6 +314,8 @@ function gymStatus(wk,d){
   return {k:n===0?(s&&s.st==="done"?"done":""):(c>=n?"done":(c>0?"part":"")),done:c,n:n};
 }
 function exerciseUnit(x){return x.unit||(x.bw?"bodyweight":"kg");}
+function exerciseName(x){var exercise=state.exercises[x.id];return exercise&&exercise.n||x.n||"Exercise";}
+function exerciseRecord(id){return state.exercises[id]||null;}
 function lastMeasure(wk,x){
   var unit=exerciseUnit(x);
   for(var w=wk-1;w>=wk-520;w--){
@@ -370,6 +397,11 @@ function render(){
     if(menuOpen)appendMenu();
     window.scrollTo(0,0);return;
   }
+  if(page==="workouts"){
+    renderWorkouts();
+    if(menuOpen)appendMenu();
+    window.scrollTo(0,0);return;
+  }
   if(page==="editor"){
     renderPlanEditor();
     if(menuOpen)appendMenu();
@@ -413,6 +445,7 @@ function appendMenu(){
       h("nav",{"aria-label":"Main menu"},
         menuItem("log","Today's log"),
         menuItem("plans","Workout plans"),
+        menuItem("workouts","My workouts"),
         menuItem("backup","Backup"))));
   app.appendChild(backdrop);
 }
@@ -525,14 +558,42 @@ function renderPlans(){
   });
 }
 
+function renderWorkouts(){
+  app.appendChild(h("section",{class:"hero"},
+    h("p",null,"Build reusable workouts from your exercise library. Add one or more workouts to a day's plan, then customize the exercise list for that date.")));
+  app.appendChild(h("div",{class:"page-head"},
+    h("h2",null,"My workouts"),
+    iconButton("plus","Create workout",function(){editorTarget={type:"workout",id:""};page="editor";render();},"primary")));
+  var ids=Object.keys(state.workouts);
+  if(!ids.length)app.appendChild(h("section",{class:"card body"},h("p",{class:"note"},"No saved workouts yet. Create one to reuse its exercises in daily plans.")));
+  ids.forEach(function(id){
+    var workout=state.workouts[id];
+    if(!workout)return;
+    app.appendChild(h("section",{class:"card plan-day"},
+      h("div",{class:"lab"},
+        h("div",{class:"dname"},workout.title||"Workout"),
+        h("div",{class:"ddate"},(workout.exercises||[]).length+" exercises"+(workout.details?" · "+workout.details:""))),
+      h("div",{class:"plan-tools"},
+        iconButton("edit","Edit "+(workout.title||"workout"),function(){editorTarget={type:"workout",id:id};page="editor";render();}),
+        iconButton("trash","Delete "+(workout.title||"workout"),function(){
+          if(!window.confirm("Delete this saved workout? Existing day plans will not change."))return;
+          delete state.workouts[id];save();render();
+        },"danger"))));
+  });
+}
+
 function renderPlanEditor(){
   if(!editorTarget){page="plans";render();return;}
-  var d=editorTarget.day, type=editorTarget.type, key=keyFor(wkSel,d.k);
-  var plan=type==="template"?state.templates[d.k]:(planFor(wkSel,d)||{title:"",details:"",rest:"",exercises:[]});
+  var type=editorTarget.type, d=editorTarget.day, key=d?keyFor(wkSel,d.k):"";
+  var plan=type==="workout"?(state.workouts[editorTarget.id]||{title:"",details:"",rest:"",exercises:[]}):
+    (type==="template"?state.templates[d.k]:(planFor(wkSel,d)||{title:"",details:"",rest:"",exercises:[]}));
+  var backPage=type==="workout"?"workouts":(type==="template"?"plans":"log");
+  var heading=type==="workout"?(editorTarget.id?"Edit workout":"New workout"):
+    (type==="template"?d.n+" default plan":d.n+" · "+fmt(dateOf(wkSel,DAYS.indexOf(d))));
   app.appendChild(h("section",{class:"card"},
     h("div",{class:"page-head",style:"padding:14px"},
-      iconButton("back","Back to "+(type==="template"?"plans":"workouts"),function(){page=type==="template"?"plans":"log";editorTarget=null;render();}),
-      h("h2",null,type==="template"?d.n+" default plan":d.n+" · "+fmt(dateOf(wkSel,DAYS.indexOf(d))))),
+      iconButton("back","Back",function(){page=backPage;editorTarget=null;render();}),
+      h("h2",null,heading)),
     planEditor(d,plan,type)));
 }
 
@@ -556,7 +617,7 @@ function emptyCard(d,dt,isToday){
 }
 
 function planEditor(d,plan,type){
-  var key=keyFor(wkSel,d.k), existing=plan&&plan.exercises||[];
+  var key=d?keyFor(wkSel,d.k):"", existing=plan&&plan.exercises||[];
   var title=h("input",{type:"text",maxlength:"80","aria-label":"Workout name",placeholder:"e.g. Strength day",value:plan?plan.title:""});
   var details=h("input",{type:"text",maxlength:"160","aria-label":"Workout details",placeholder:"Optional focus or notes",value:plan?plan.details||"":""});
   var rest=h("input",{type:"text",maxlength:"100","aria-label":"Rest instructions",placeholder:"Optional rest instructions",value:plan?plan.rest||"":""});
@@ -564,6 +625,11 @@ function planEditor(d,plan,type){
   var exerciseRows=[];
   function addExercise(item){
     item=item||{};
+    var exercise=exerciseRecord(item.id);
+    if(item.id&&!exercise){
+      exercise={id:item.id,n:item.n||"Exercise"};
+      state.exercises[item.id]=exercise;
+    }
     var unit=h("select",{"aria-label":"Tracking unit for "+(item.n||"exercise")},
       h("option",{value:"kg"},"kg · weight"),
       h("option",{value:"lb"},"lb · weight"),
@@ -574,47 +640,107 @@ function planEditor(d,plan,type){
       h("option",{value:"bodyweight"},"Bodyweight"),
       h("option",{value:"none"},"No value"));
     unit.value=exerciseUnit(item);
-    var row={id:item.id||"",name:null,
+    var row={id:item.id||"",source:null,newName:null,
       sets:h("input",{type:"number",min:"1",max:"99","aria-label":"Sets",placeholder:"Sets",value:item.s||3}),
       reps:h("input",{type:"text",maxlength:"40","aria-label":"Reps or duration",placeholder:"Reps",value:item.r||""}),
       unit:unit};
-    row.name=h("input",{class:"exercise-name",type:"text",maxlength:"100","aria-label":"Exercise name",placeholder:"Exercise",value:item.n||"",oninput:function(){unit.setAttribute("aria-label","Tracking unit for "+(row.name.value||"exercise"));}});
+    row.source=h("select",{class:"exercise-name","aria-label":"Choose an exercise"});
+    var catalog=Object.keys(state.exercises).sort(function(a,b){
+      return String(state.exercises[a].n||"").localeCompare(String(state.exercises[b].n||""));
+    });
+    row.source.appendChild(h("option",{value:"__new"},"＋ Create a new exercise"));
+    catalog.forEach(function(id){
+      var record=state.exercises[id];
+      row.source.appendChild(h("option",{value:id},record.n||"Exercise"));
+    });
+    row.source.value=row.id||"__new";
+    row.newName=h("input",{class:"exercise-name exercise-new-name",type:"text",maxlength:"100","aria-label":"New exercise name",placeholder:"New exercise name",value:item.n&&!item.id?item.n:""});
+    row.newName.style.display=row.id?"none":"";
+    row.source.addEventListener("change",function(){
+      row.id=row.source.value==="__new"?"":row.source.value;
+      row.newName.style.display=row.id?"none":"";
+      if(row.id){
+        var selected=exerciseRecord(row.id);
+        row.newName.value="";
+        if(selected){unit.setAttribute("aria-label","Tracking unit for "+selected.n);unit.value=selected.unit||"kg";}
+      }else{
+        unit.setAttribute("aria-label","Tracking unit for "+(row.newName.value||"new exercise"));
+      }
+    });
     var el=h("div",{class:"exercise-editor"},
-      row.name,
+      row.source,
+      row.newName,
       iconButton("trash","Remove exercise",function(){row.el.remove();exerciseRows=exerciseRows.filter(function(x){return x!==row;});}));
     el.appendChild(h("div",{class:"exercise-meta"},row.sets,row.reps,unit));
     row.el=el;exerciseRows.push(row);rows.appendChild(el);
   }
   existing.forEach(addExercise);
+  var workoutPicker=null;
+  var workoutAdd=type!=="workout"&&Object.keys(state.workouts).length?
+    h("div",{class:"workout-add"}):null;
+  if(workoutAdd){
+    workoutPicker=h("select",{"aria-label":"Choose a saved workout"},
+      h("option",{value:""},"Add exercises from a saved workout"));
+    Object.keys(state.workouts).forEach(function(id){
+      var workout=state.workouts[id];
+      if(workout)workoutPicker.appendChild(h("option",{value:id},(workout.title||"Workout")+" · "+(workout.exercises||[]).length+" exercises"));
+    });
+    workoutAdd.appendChild(workoutPicker);
+    workoutAdd.appendChild(h("button",{class:"btn",type:"button",onclick:function(){
+      var workout=state.workouts[workoutPicker.value];
+      if(!workout){message.textContent="Choose a saved workout first.";return;}
+      var present={};exerciseRows.forEach(function(row){if(row.id)present[row.id]=true;});
+      (workout.exercises||[]).forEach(function(item){if(!present[item.id]){addExercise(item);present[item.id]=true;}});
+      if(!title.value.trim())title.value=workout.title||"";
+      if(!details.value.trim())details.value=workout.details||"";
+      if(!rest.value.trim())rest.value=workout.rest||"";
+      workoutPicker.value="";message.textContent="Exercises added from "+(workout.title||"workout")+".";
+    }},"Add workout"));
+  }
   var editor=h("section",{class:"plan-edit"},
-    type==="override"?h("p",{class:"note"},"This workout applies only to "+d.n+" in week "+wkSel+". Other weeks keep the weekday plan."):h("p",{class:"note"},"This weekday plan is used for every week without a date-specific change."),
+    type==="workout"?h("p",{class:"note"},"Saved workouts contain reusable exercises. Exercise names are shared across workouts and daily plans."):
+      (type==="override"?h("p",{class:"note"},"This workout applies only to "+d.n+" in week "+wkSel+". Other weeks keep the weekday plan."):
+        h("p",{class:"note"},"This weekday plan is used for every week without a date-specific change.")),
     h("label",null,"Workout name"),title,
     h("label",null,"Details"),details,
     h("label",null,"Exercises"),
-    h("p",{class:"note"},"Choose kg/lb for weights, km/mi for distance, or min/sec for time."),
+    type!=="workout"?workoutAdd:null,
+    h("p",{class:"note"},"Choose an exercise from your library or create a new one. Set its sets, reps, and tracking unit."),
     rows,
     iconButton("plus","Add exercise",function(){addExercise();},"text-icon","Add exercise"),
     h("label",null,"Rest instructions"),rest,
     message,
     h("div",{class:"plan-tools",style:"margin-top:14px"},
       iconButton("check","Save workout plan",function(){
-        var name=title.value.trim(), items=[];
+        var name=title.value.trim(), items=[], newExercises=[];
         if(!name){message.textContent="Enter a workout name.";title.focus();return;}
         for(var i=0;i<exerciseRows.length;i++){
-          var x=exerciseRows[i], exercise=x.name.value.trim(), sets=parseInt(x.sets.value,10), reps=x.reps.value.trim();
-          if(!exercise||!sets||sets<1||!reps){message.textContent="Complete the exercise name, sets, and reps for each row.";return;}
-          items.push({id:x.id||"custom-"+Date.now()+"-"+i,n:exercise,s:sets,r:reps,unit:x.unit.value});
+          var x=exerciseRows[i], exerciseId=x.id, exerciseNameValue=x.newName.value.trim(), sets=parseInt(x.sets.value,10), reps=x.reps.value.trim();
+          if(!exerciseId&&exerciseNameValue){
+            exerciseId="exercise-"+Date.now()+"-"+Math.random().toString(36).slice(2);
+            newExercises.push({id:exerciseId,n:exerciseNameValue});
+          }
+          if(!exerciseId||!sets||sets<1||!reps){message.textContent="Choose or enter an exercise, then complete its sets and reps.";return;}
+          items.push({id:exerciseId,s:sets,r:reps,unit:x.unit.value});
         }
+        newExercises.forEach(function(exercise){state.exercises[exercise.id]=exercise;});
         var saved={title:name,details:details.value.trim(),rest:rest.value.trim(),exercises:items};
-        if(type==="template")state.templates[d.k]=saved;
+        if(type==="workout"){
+          var workoutId=editorTarget.id||("workout-"+Date.now()+"-"+Math.random().toString(36).slice(2));
+          saved.id=workoutId;state.workouts[workoutId]=saved;
+        }else if(type==="template"){
+          state.templates[d.k]=saved;
+          var legacy=state.workouts["legacy-"+d.k];
+          if(legacy)state.workouts["legacy-"+d.k]={id:legacy.id,title:name,details:saved.details,rest:saved.rest,exercises:items.map(function(x){return {id:x.id,s:x.s,r:x.r,unit:x.unit};})};
+        }
         else{
           state.p[key]=saved;
           var session=sess(wkSel,d.k), nextEx={};
           items.forEach(function(x){if(session.ex[x.id])nextEx[x.id]=session.ex[x.id];});
           session.ex=nextEx;
         }
-        save();page=type==="template"?"plans":"log";editorTarget=null;render();
-      },"text-icon primary","Save plan"),
+        save();page=type==="workout"?"workouts":(type==="template"?"plans":"log");editorTarget=null;render();
+      },"text-icon primary",type==="workout"?"Save workout":"Save plan"),
       type==="override"&&Object.prototype.hasOwnProperty.call(state.p,key)?iconButton("back","Use weekday plan again",function(){
         delete state.p[key];save();page="log";editorTarget=null;render();
       }):null,
@@ -622,7 +748,7 @@ function planEditor(d,plan,type){
         if(!window.confirm("Remove the workout and log for this date?"))return;
         state.p[key]=null;delete state.s[key];save();page="log";editorTarget=null;render();
       },"danger"):null));
-  if(!existing.length)addExercise();
+  if(!existing.length&&!workoutAdd)addExercise();
   return editor;
 }
 
@@ -645,18 +771,19 @@ function gymCard(d,dt,isToday){
   var s=peek(wkSel,d.k);
   plan.exercises.forEach(function(x){
     var e=(s&&s.ex&&s.ex[x.id])||{};
+    var name=exerciseName(x);
     var unit=exerciseUnit(x);
     var on=!!e.d;
-    var ck=h("button",{class:"ck",role:"checkbox","aria-checked":on?"true":"false","aria-label":x.n,onclick:function(){
+    var ck=h("button",{class:"ck",role:"checkbox","aria-checked":on?"true":"false","aria-label":name,onclick:function(){
         var z=sess(wkSel,d.k); if(z.st==="skip")z.st="";
         z.ex[x.id]=z.ex[x.id]||{}; z.ex[x.id].d=z.ex[x.id].d?0:1; save(); open[key]=true; render();}},
       h("i",{html:TICK}));
     var row=h("div",{class:"ex"+(on?" isdone":"")},ck,
-      h("div",{class:"exn"},h("b",null,x.n),h("small",null,x.s+" x "+x.r)));
+      h("div",{class:"exn"},h("b",null,name),h("small",null,x.s+" x "+x.r)));
     if(unit==="bodyweight"||unit==="none"){row.appendChild(h("span"));}
     else{
       var previous=lastMeasure(wkSel,x);
-      var inp=h("input",{class:"kg",type:"text",inputmode:"decimal",placeholder:previous?String(previous):"—","aria-label":x.n+" value in "+unit,id:"measure-"+wkSel+"-"+x.id,
+      var inp=h("input",{class:"kg",type:"text",inputmode:"decimal",placeholder:previous?String(previous):"—","aria-label":name+" value in "+unit,id:"measure-"+wkSel+"-"+x.id,
         oninput:function(){var z=sess(wkSel,d.k); z.ex[x.id]=z.ex[x.id]||{}; z.ex[x.id].v=inp.value.replace(/[^0-9.]/g,"").slice(0,8); z.ex[x.id].u=unit; save();}});
       inp.value=loggedMeasure(e,unit);
       row.appendChild(h("div",{class:"measure"},inp,h("small",null,unit)));
@@ -694,7 +821,7 @@ function readable(){
       var e=(s.ex&&s.ex[x.id])||{};
       var unit=exerciseUnit(x), value=e.v!=null?e.v:e.kg, loggedUnit=e.u||(e.kg!=null?"kg":unit);
       if(e.d||value)any=true;
-      items.push({lift:x.n,sets:x.s,reps:x.r,done:!!e.d,unit:loggedUnit,value:value!=null?parseFloat(value):null,kg:loggedUnit==="kg"&&value!=null?parseFloat(value):null});
+      items.push({lift:exerciseName(x),sets:x.s,reps:x.r,done:!!e.d,unit:loggedUnit,value:value!=null?parseFloat(value):null,kg:loggedUnit==="kg"&&value!=null?parseFloat(value):null});
     });
     if(!any&&!s.st)return;
     var status=s.st==="skip"?"skipped":(gymStatus(wk,d).k==="done"?"done":(gymStatus(wk,d).k==="part"?"partial":"not started"));
@@ -704,8 +831,8 @@ function readable(){
   return out;
 }
 function exportText(){
-  return JSON.stringify({app:"MyWorkouts",version:3,exportedAt:new Date().toISOString(),programStart:state.start,
-    log:readable(),bodyChecks:state.body,raw:{t:state.t,s:state.s,body:state.body,p:state.p,templates:state.templates,start:state.start}},null,1);
+  return JSON.stringify({app:"MyWorkouts",version:4,exportedAt:new Date().toISOString(),programStart:state.start,
+    log:readable(),bodyChecks:state.body,raw:{t:state.t,s:state.s,body:state.body,p:state.p,templates:state.templates,exercises:state.exercises,workouts:state.workouts,start:state.start}},null,1);
 }
 function parseBackup(text){
   var o=JSON.parse(String(text)), raw=(o&&o.raw)?o.raw:o;
